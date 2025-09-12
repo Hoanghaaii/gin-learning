@@ -1,6 +1,7 @@
 package usecase
 
 import (
+	"context"
 	"errors"
 	"regexp"
 	"strings"
@@ -22,18 +23,18 @@ func NewUserUsecase(userRepo repository.UserRepository) *UserUseCase {
 	return &UserUseCase{userRepo: userRepo}
 }
 
-func (uc *UserUseCase) CreateUser(req dto.CreateUserRequest) (*dto.UserResponse, error) {
+func (uc *UserUseCase) CreateUser(ctx context.Context, req dto.CreateUserRequest) (*dto.UserResponse, error) {
 	if err := uc.validateCreateUserRequest(req); err != nil {
 		return nil, err
 	}
-	exists, err := uc.userRepo.ExistsByEmail(req.Email)
+	exists, err := uc.userRepo.ExistsByEmail(ctx, req.Email)
 	if err != nil {
 		return nil, err
 	}
 	if exists {
 		return nil, errors.New("email already exists")
 	}
-	exists, err = uc.userRepo.ExistsByPhone(req.Phone)
+	exists, err = uc.userRepo.ExistsByPhone(ctx, req.Phone)
 	if err != nil {
 		return nil, err
 	}
@@ -55,15 +56,15 @@ func (uc *UserUseCase) CreateUser(req dto.CreateUserRequest) (*dto.UserResponse,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	if err := uc.userRepo.Create(user); err != nil {
+	if err := uc.userRepo.Create(ctx, user); err != nil {
 		return nil, err
 	}
 	response := dto.ToUserResponse(user)
 	return &response, nil
 }
 
-func (uc *UserUseCase) getUserById(id uint) (*dto.UserResponse, error) {
-	user, err := uc.userRepo.FindByID(id)
+func (uc *UserUseCase) GetUserById(ctx context.Context, id uint) (*dto.UserResponse, error) {
+	user, err := uc.userRepo.FindByID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -71,8 +72,8 @@ func (uc *UserUseCase) getUserById(id uint) (*dto.UserResponse, error) {
 	return &response, nil
 }
 
-func (uc *UserUseCase) getUserByEmail(email string) (*dto.UserResponse, error) {
-	user, err := uc.userRepo.FindByEmail(email)
+func (uc *UserUseCase) GetUserByEmail(ctx context.Context, email string) (*dto.UserResponse, error) {
+	user, err := uc.userRepo.FindByEmail(ctx, email)
 	if err != nil {
 		return nil, err
 	}
@@ -80,8 +81,8 @@ func (uc *UserUseCase) getUserByEmail(email string) (*dto.UserResponse, error) {
 	return &response, nil
 }
 
-func (uc *UserUseCase) UpdateUser(userID uint, req dto.UpdateUserRequest) (*dto.UserResponse, error) {
-	user, err := uc.userRepo.FindByID(userID)
+func (uc *UserUseCase) UpdateUser(ctx context.Context, userID uint, req dto.UpdateUserRequest) (*dto.UserResponse, error) {
+	user, err := uc.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return nil, errors.New("user not found")
 	}
@@ -96,9 +97,9 @@ func (uc *UserUseCase) UpdateUser(userID uint, req dto.UpdateUserRequest) (*dto.
 			return nil, err
 		}
 		// Check if phone exists for other users
-		existingUser, _ := uc.userRepo.FindByID(userID) // current user
+		existingUser, _ := uc.userRepo.FindByID(ctx, userID) // current user
 		if req.Phone != existingUser.Phone {
-			exists, err := uc.userRepo.ExistsByPhone(req.Phone)
+			exists, err := uc.userRepo.ExistsByPhone(ctx, req.Phone)
 			if err != nil {
 				return nil, err
 			}
@@ -109,18 +110,18 @@ func (uc *UserUseCase) UpdateUser(userID uint, req dto.UpdateUserRequest) (*dto.
 		user.Phone = uc.cleanPhoneNumber(req.Phone)
 	}
 	user.UpdatedAt = time.Now()
-	if err := uc.userRepo.Update(user); err != nil {
+	if err := uc.userRepo.Update(ctx, user); err != nil {
 		return nil, err
 	}
 	response := dto.ToUserResponse(user)
 	return &response, nil
 }
 
-func (uc *UserUseCase) ChangePassword(userID uint, req dto.ChangePasswordRequest) error {
+func (uc *UserUseCase) ChangePassword(ctx context.Context, userID uint, req dto.ChangePasswordRequest) error {
 	if req.NewPassword != req.ConfirmPassword {
 		return errors.New("password confirmation does not match")
 	}
-	user, err := uc.userRepo.FindByID(userID)
+	user, err := uc.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}
@@ -136,51 +137,51 @@ func (uc *UserUseCase) ChangePassword(userID uint, req dto.ChangePasswordRequest
 	}
 	user.Password = hashedPassword
 	user.UpdatedAt = time.Now()
-	return uc.userRepo.Update(user)
+	return uc.userRepo.Update(ctx, user)
 }
 
-func (uc *UserUseCase) ChangeRole(userID uint, req dto.ChangeRoleRequest, performedByUserID uint) error {
-	performer, err := uc.userRepo.FindByID(performedByUserID)
+func (uc *UserUseCase) ChangeRole(ctx context.Context, userID uint, req dto.ChangeRoleRequest, performedByUserID uint) error {
+	canManage, err := uc.CanUserManageUsers(ctx, performedByUserID)
 	if err != nil {
-		return errors.New("performer not found")
+		return err
 	}
-	if performer.Role != entities.RoleAdmin {
-		return errors.New("only admin can change user roles")
+	if !canManage {
+		return errors.New("only admin can change role users")
 	}
-	user, err := uc.userRepo.FindByID(userID)
+	user, err := uc.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}
 	user.Role = req.Role
 	user.UpdatedAt = time.Now()
-	return uc.userRepo.Update(user)
+	return uc.userRepo.Update(ctx, user)
 }
 
-func (uc *UserUseCase) GetAllUsers(params dto.UserQueryParams) (*dto.UserListResponse, error) {
+func (uc *UserUseCase) GetAllUsers(ctx context.Context, params dto.UserQueryParams) (*dto.UserListResponse, error) {
 	offset := (params.Page - 1) * params.Limit
 	var users []*entities.User
 	var total int64
 	var err error
 	if params.Role != "" {
-		users, err = uc.userRepo.FindByRole(params.Role, params.Limit, offset)
+		users, err = uc.userRepo.FindByRole(ctx, params.Role, params.Limit, offset)
 		if err != nil {
 			return nil, err
 		}
-		total, err = uc.userRepo.CountByRole(params.Role)
+		total, err = uc.userRepo.CountByRole(ctx, params.Role)
 		if err != nil {
 			return nil, err
 		}
 	} else if params.IsActive != nil && *params.IsActive {
-		users, err = uc.userRepo.FindActiveUser(params.Limit, offset)
+		users, err = uc.userRepo.FindActiveUser(ctx, params.Limit, offset)
 		if err != nil {
 			return nil, err
 		}
-		total, err = uc.userRepo.CountActiveUsers()
+		total, err = uc.userRepo.CountActiveUsers(ctx)
 		if err != nil {
 			return nil, err
 		}
 	} else {
-		users, total, err = uc.userRepo.FindAll(params.Limit, offset)
+		users, total, err = uc.userRepo.FindAll(ctx, params.Limit, offset)
 		if err != nil {
 			return nil, err
 		}
@@ -189,25 +190,80 @@ func (uc *UserUseCase) GetAllUsers(params dto.UserQueryParams) (*dto.UserListRes
 	return &response, nil
 }
 
-func (uc *UserUseCase) DeactivateUser(userID uint, performedByUserID uint) error {
-	performer, err := uc.userRepo.FindByID(performedByUserID)
+func (uc *UserUseCase) DeactivateUser(ctx context.Context, userID uint, performedByUserID uint) error {
+	canManage, err := uc.CanUserManageUsers(ctx, performedByUserID)
 	if err != nil {
-		return errors.New("performer not found")
+		return err
 	}
-	if performer.Role != entities.RoleAdmin {
-		return errors.New("insufficient permissions")
+	if !canManage {
+		return errors.New("only admin can deactivate users")
 	}
-	targetUser, err := uc.userRepo.FindByID(userID)
+	targetUser, err := uc.userRepo.FindByID(ctx, userID)
 	if err != nil {
 		return errors.New("user not found")
 	}
 	if !targetUser.IsActive {
 		return errors.New("user is already deactivated")
 	}
-	return uc.userRepo.DeactivateUser(userID)
+	return uc.userRepo.DeactivateUser(ctx, userID)
 }
 
-//Private helper methods
+func (uc *UserUseCase) ActivateUser(ctx context.Context, userID uint, performedByUserID uint) error {
+	canManage, err := uc.CanUserManageUsers(ctx, performedByUserID)
+	if err != nil {
+		return err
+	}
+	if !canManage {
+		return errors.New("only admin can activate users")
+	}
+	targetUser, err := uc.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+	if targetUser.IsActive {
+		return errors.New("user is already activated")
+	}
+	return uc.userRepo.ActivateUser(ctx, userID)
+}
+
+func (uc *UserUseCase) DeleteUser(ctx context.Context, userID uint, performedByUserID uint) error {
+	canManage, err := uc.CanUserManageUsers(ctx, performedByUserID)
+	if err != nil {
+		return err
+	}
+	if !canManage {
+		return errors.New("only admin can delete users")
+	}
+
+	// Check if user exists
+	_, err = uc.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return errors.New("user not found")
+	}
+
+	return uc.userRepo.Delete(ctx, userID)
+}
+
+func (uc *UserUseCase) CanUserCreateProduct(ctx context.Context, userID uint) (bool, error) {
+	user, err := uc.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	return user.Role == entities.RoleBuyer || user.Role == entities.RoleAdmin, nil
+}
+
+func (uc *UserUseCase) CanUserManageUsers(ctx context.Context, userID uint) (bool, error) {
+	user, err := uc.userRepo.FindByID(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	if user.Role != entities.RoleAdmin {
+		return false, errors.New("only admin can activate users")
+	}
+	return true, nil
+}
+
+//Private helper methods (không cần ctx)
 
 func (uc *UserUseCase) validateCreateUserRequest(req dto.CreateUserRequest) error {
 	if err := uc.validateName(req.Name); err != nil {
@@ -219,7 +275,6 @@ func (uc *UserUseCase) validateCreateUserRequest(req dto.CreateUserRequest) erro
 	if err := uc.validatePassword(req.Password); err != nil {
 		return err
 	}
-
 	if err := uc.validatePhone(req.Phone); err != nil {
 		return err
 	}

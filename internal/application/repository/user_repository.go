@@ -1,21 +1,29 @@
 package repository
 
-import "hari-donganh/gin-learning/internal/domain/entities"
+import (
+	"context"
+
+	"hari-donganh/gin-learning/internal/domain/entities"
+)
 
 type UserRepository interface {
-	Create(user *entities.User) error
-	FindByID(id uint) (*entities.User, error)
-	FindByEmail(email string) (*entities.User, error)
-	Update(user *entities.User) error
-	Delete(id uint) error
-	FindAll(limit, offset int) ([]*entities.User, int64, error)
-	FindByRole(role entities.UserRole, limit, offset int) ([]*entities.User, error)
-	FindActiveUser(limit, offset int) ([]*entities.User, error)
-	Search(query string, limit, offset int) ([]*entities.User, error)
-	ExistsByEmail(email string) (bool, error)
-	ExistsByPhone(phone string) (bool, error)
-	CountByRole(role entities.UserRole) (int64, error)
-	CountActiveUsers() (int64, error)
-	ActivateUser(userID uint) error
-	DeactivateUser(userID uint) error
+	Create(ctx context.Context, user *entities.User) error
+	FindByID(ctx context.Context, id uint) (*entities.User, error)
+	FindByEmail(ctx context.Context, email string) (*entities.User, error)
+	Update(ctx context.Context, user *entities.User) error
+	Delete(ctx context.Context, id uint) error
+
+	FindAll(ctx context.Context, limit, offset int) ([]*entities.User, int64, error)
+	FindByRole(ctx context.Context, role entities.UserRole, limit, offset int) ([]*entities.User, error)
+	FindActiveUser(ctx context.Context, limit, offset int) ([]*entities.User, error)
+	Search(ctx context.Context, query string, limit, offset int) ([]*entities.User, error)
+
+	ExistsByEmail(ctx context.Context, email string) (bool, error)
+	ExistsByPhone(ctx context.Context, phone string) (bool, error)
+
+	CountByRole(ctx context.Context, role entities.UserRole) (int64, error)
+	CountActiveUsers(ctx context.Context) (int64, error)
+
+	ActivateUser(ctx context.Context, userID uint) error
+	DeactivateUser(ctx context.Context, userID uint) error
 }
